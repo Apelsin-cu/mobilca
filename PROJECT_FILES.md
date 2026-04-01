@@ -1,79 +1,46 @@
-# 📁 Файлы проекта ShelfLife
+# Project Files
 
-## 🎯 Основные файлы
+This file documents the active application in `helfifexpo/`.
 
-### Конфигурация
-- `package.json` - Зависимости и скрипты
-- `app.json` - Конфигурация приложения
-- `babel.config.js` - Конфигурация Babel
-- `metro.config.js` - Конфигурация Metro
-- `index.js` - Точка входа приложения
+## Workspace Level
 
-### Главный компонент
-- `App.tsx` - Главный компонент с навигацией
+- `package.json`: root helper scripts that proxy commands into the Expo app
+- `README.md`: workspace overview
+- `QUICK_START.md`: short launch guide
 
-## 📱 Экраны (src/screens/)
+## Active App
 
-- `HomeScreen.tsx` - Главная страница со статистикой
-- `AddProductScreen.tsx` - Добавление продуктов
-- `ProductListScreen.tsx` - Список всех продуктов
-- `ProductDetailScreen.tsx` - Детали продукта
-- `SettingsScreen.tsx` - Настройки приложения
+- `helfifexpo/package.json`: Expo app dependencies and scripts
+- `helfifexpo/App.tsx`: tab navigation entrypoint
+- `helfifexpo/app.json`: Expo configuration
+- `helfifexpo/eas.json`: EAS build profiles
+- `helfifexpo/tsconfig.json`: TypeScript config
 
-## 🔧 Сервисы (src/services/)
+## Screens
 
-- `OpenFoodFactsAPI.ts` - Интеграция с API Open Food Facts
-- `StorageService.ts` - Локальное хранение данных
-- `NotificationService.ts` - Система уведомлений
+- `helfifexpo/src/screens/HomeScreen.tsx`: scanner and product lookup result screen
+- `helfifexpo/src/screens/FridgeScreen.tsx`: fridge list, filters, add flow
 
-## 🧩 Компоненты (src/components/)
+## Components
 
-- `SimpleBarcodeScanner.tsx` - Упрощенный сканер штрих-кодов
-- `BarcodeScanner.tsx` - Полнофункциональный сканер (не используется)
+- `helfifexpo/src/components/BarcodeScanner.tsx`: camera-based barcode scanner
+- `helfifexpo/src/components/AddProductModal.tsx`: product creation form
+- `helfifexpo/src/components/ProductCard.tsx`: fridge grid item
 
-## 📝 Типы (src/types/)
+## Services
 
-- `Product.ts` - TypeScript типы для продуктов
+- `helfifexpo/src/services/OpenFoodFactsAPI.ts`: external product lookup and category mapping
+- `helfifexpo/src/services/FirebaseService.ts`: Firestore CRUD
+- `helfifexpo/src/services/NotificationService.ts`: local notification scheduling
 
-## 📚 Документация
+## Config And Types
 
-- `README.md` - Основная документация
-- `QUICK_START.md` - Быстрый старт
-- `WINDOWS_SETUP.md` - Установка для Windows
-- `INSTALLATION.md` - Полная инструкция по установке
-- `PROJECT_FILES.md` - Этот файл
+- `helfifexpo/src/config/firebase.ts`: Firebase initialization
+- `helfifexpo/src/types/Product.ts`: domain types and category metadata
 
-## 🎨 Особенности реализации
+## Legacy Files
 
-### ✅ Реализованные функции:
-- Добавление продуктов по штрих-коду
-- Поиск в базе Open Food Facts
-- Локальное хранение данных
-- Система уведомлений
-- Современный UI/UX
-- TypeScript типизация
-- Кроссплатформенность
+- `App.tsx`: old root app shell, not the active app
+- `index.js`: old root entrypoint, not the active app
 
-### 🔧 Технические решения:
-- Упрощенный сканер штрих-кодов (без сложных зависимостей)
-- Автоматическое планирование уведомлений
-- Цветовая индикация статуса продуктов
-- Фильтрация и сортировка продуктов
-- Обработка ошибок и валидация
-
-### 📱 Пользовательский опыт:
-- Интуитивная навигация
-- Быстрое добавление продуктов
-- Наглядная статистика
-- Гибкие настройки
-- Офлайн работа
-
-## 🚀 Готовность к запуску
-
-Проект полностью готов к запуску:
-1. ✅ Все зависимости установлены
-2. ✅ Код без ошибок линтера
-3. ✅ Metro bundler запущен
-4. ✅ Документация создана
-
-**Следующий шаг:** Запустите `npm run android` для тестирования на эмуляторе!
+Keep legacy files only until the team confirms they are no longer needed.

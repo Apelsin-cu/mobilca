@@ -1,10 +1,15 @@
-import { ProductCategory } from '../types/Product';
+import { ProductCategory, ProductDateSource } from '../types/Product';
+import { normalizeScannedBarcode } from '../utils/barcode';
+import { normalizeExpiryDate, parseProductDate } from '../utils/productDate';
 
 interface ProductData {
   name: string;
   brand: string;
   category: ProductCategory;
   expiryDate: string;
+  expiryDateSource: ProductDateSource;
+  manufactureDate?: string;
+  manufactureDateSource?: ProductDateSource;
   imageUrl: string;
   isFromApi: boolean; // Флаг, что данные получены из API
   purchaseLocation?: string; // Магазин из API
@@ -169,8 +174,13 @@ const getDairyExpiryDays = (productName: string): number => {
 };
 
 // Получить дату истечения срока (сегодня + дни)
-const getDefaultExpiryDate = (category: ProductCategory, productName: string = ''): string => {
-  const date = new Date();
+const getDefaultExpiryDate = (
+  category: ProductCategory,
+  productName: string = '',
+  manufactureDate?: string
+): string => {
+  const baseDate = parseProductDate(manufactureDate) || new Date();
+  const date = new Date(baseDate);
   
   // Для молочных продуктов используем более точные сроки
   let days = DEFAULT_EXPIRY_DAYS[category];
@@ -184,12 +194,35 @@ const getDefaultExpiryDate = (category: ProductCategory, productName: string = '
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const year = date.getFullYear();
   
-  return `${day}.${month}.${year}`;
+  return normalizeExpiryDate(`${day}.${month}.${year}`);
+};
+
+const extractManufactureDate = (product: Record<string, any>): string => {
+  const candidates = [
+    product.production_date,
+    product.manufacturing_date,
+    product.production_datetime,
+    product.packaging_date,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = formatApiDate(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return '';
 };
 
 export const OpenFoodFactsAPI = {
-  async getProductByBarcode(barcode: string): Promise<ProductData | null> {
+  async getProductByBarcode(rawBarcode: string): Promise<ProductData | null> {
     try {
+      const barcode = normalizeScannedBarcode(rawBarcode);
+      if (!barcode) {
+        return null;
+      }
+
       console.log('Fetching product:', barcode);
       const response = await fetch(`https://world.openfoodfacts.org/api/v3/product/${barcode}.json`);
       const data = await response.json();
@@ -197,9 +230,13 @@ export const OpenFoodFactsAPI = {
       console.log('API Response status:', data.status);
       console.log('Full API response:', JSON.stringify(data.product, null, 2).substring(0, 2000));
       
-      if (data && data.product) {
+      if (data?.status === 1 && data.product) {
         const product = data.product;
-        const productName = product.product_name || product.product_name_ru || product.product_name_en || 'Неизвестный продукт';
+        const productName =
+          product.product_name_ru ||
+          product.product_name ||
+          product.product_name_en ||
+          'Неизвестный продукт';
         
         // Собираем все возможные категории для определения
         const categoriesText = [
@@ -219,16 +256,25 @@ export const OpenFoodFactsAPI = {
         console.log('Product name:', productName);
         console.log('Mapped category:', category);
         
-        // Срок годности из API
-        let expiryDate = getDefaultExpiryDate(category, productName);
+        const manufactureDate = extractManufactureDate(product);
+        let manufactureDateSource: ProductDateSource | undefined = manufactureDate
+          ? 'api'
+          : undefined;
+        let expiryDate = '';
+        let expiryDateSource: ProductDateSource = 'manual';
         
         // Пробуем найти срок годности в разных полях API
         if (product.expiration_date) {
           console.log('Found expiration_date:', product.expiration_date);
           expiryDate = formatApiDate(product.expiration_date);
+          expiryDateSource = expiryDate ? 'api' : 'manual';
         } else if (product.best_before_date) {
           console.log('Found best_before_date:', product.best_before_date);
           expiryDate = formatApiDate(product.best_before_date);
+          expiryDateSource = expiryDate ? 'api' : 'manual';
+        } else if (manufactureDate) {
+          expiryDate = getDefaultExpiryDate(category, productName, manufactureDate);
+          expiryDateSource = expiryDate ? 'calculated' : 'manual';
         }
         
         // Магазины из API - проверяем несколько полей
@@ -252,6 +298,9 @@ export const OpenFoodFactsAPI = {
           brand: product.brands || '',
           category,
           expiryDate,
+          expiryDateSource,
+          manufactureDate: manufactureDate || undefined,
+          manufactureDateSource,
           imageUrl: product.image_url || product.image_front_url || '',
           isFromApi: true,
           purchaseLocation,
@@ -266,8 +315,12 @@ export const OpenFoodFactsAPI = {
   },
   
   // Получить дефолтный срок годности для категории
-  getDefaultExpiryForCategory(category: ProductCategory): string {
-    return getDefaultExpiryDate(category);
+  getDefaultExpiryForCategory(
+    category: ProductCategory,
+    manufactureDate?: string,
+    productName: string = ''
+  ): string {
+    return getDefaultExpiryDate(category, productName, manufactureDate);
   },
 };
 
@@ -300,20 +353,19 @@ const formatApiDate = (dateStr: string): string => {
   // Пробуем разные форматы
   // YYYY-MM-DD
   if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-    const parts = dateStr.split('-');
-    return `${parts[2]}.${parts[1]}.${parts[0]}`;
+    return normalizeExpiryDate(dateStr);
   }
   
   // DD/MM/YYYY
   if (dateStr.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
-    return dateStr.replace(/\//g, '.');
+    return normalizeExpiryDate(dateStr.replace(/\//g, '.'));
   }
   
   // DD.MM.YYYY - уже в нужном формате
   if (dateStr.match(/^\d{2}\.\d{2}\.\d{4}$/)) {
-    return dateStr;
+    return normalizeExpiryDate(dateStr);
   }
   
-  return dateStr;
+  return normalizeExpiryDate(dateStr);
 };
 

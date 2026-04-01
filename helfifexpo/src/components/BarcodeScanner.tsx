@@ -1,18 +1,38 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 
 interface BarcodeScannerProps {
   onScanned: (barcode: string, type: string) => void;
   onClose: () => void;
-  onManualAdd?: () => void; // Добавление вручную
+  onManualAdd?: () => void;
+  onSecondaryAction?: () => void;
+  secondaryActionLabel?: string;
+  title?: string;
+  subtitle?: string;
+  isActive?: boolean;
 }
 
 const { width } = Dimensions.get('window');
 const SCANNER_SIZE = width * 0.7;
 
-const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScanned, onClose, onManualAdd }) => {
+const BarcodeScanner: React.FC<BarcodeScannerProps> = ({
+  onScanned,
+  onClose,
+  onManualAdd,
+  onSecondaryAction,
+  secondaryActionLabel,
+  title = 'Наведите камеру на штрихкод',
+  subtitle = 'Сканирование добавит продукт в холодильник',
+  isActive = false,
+}) => {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
 
@@ -20,26 +40,35 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScanned, onClose, onM
     if (!permission?.granted) {
       requestPermission();
     }
-  }, [permission]);
+  }, [permission, requestPermission]);
+
+  useEffect(() => {
+    if (isActive) {
+      setScanned(false);
+    }
+  }, [isActive]);
 
   if (!permission) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.text}>Загрузка...</Text>
+      <View style={styles.permissionScreen}>
+        <Text style={styles.permissionText}>Загружаем камеру...</Text>
       </View>
     );
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.center}>
-        <Ionicons name="camera-outline" size={64} color="#999" />
-        <Text style={styles.text}>Нет доступа к камере</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Разрешить доступ</Text>
+      <View style={styles.permissionScreen}>
+        <Ionicons name="camera-outline" size={72} color="#737B86" />
+        <Text style={styles.permissionTitle}>Нужен доступ к камере</Text>
+        <Text style={styles.permissionText}>
+          Разрешите доступ к камере, чтобы сканировать продукты и QR-коды.
+        </Text>
+        <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
+          <Text style={styles.primaryButtonText}>Разрешить доступ</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-          <Text style={styles.closeButtonText}>Закрыть</Text>
+        <TouchableOpacity onPress={onClose}>
+          <Text style={styles.secondaryTextButton}>Закрыть</Text>
         </TouchableOpacity>
       </View>
     );
@@ -67,22 +96,22 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScanned, onClose, onM
           ],
         }}
         onBarcodeScanned={({ data, type }) => {
-          if (!scanned) {
-            setScanned(true);
-            onScanned(data, type);
-          }
+          if (scanned) return;
+          setScanned(true);
+          onScanned(data, type);
         }}
       />
-      
-      {/* Overlay */}
+
       <View style={styles.overlay}>
         <View style={styles.topOverlay}>
           <TouchableOpacity style={styles.closeIcon} onPress={onClose}>
-            <Ionicons name="close" size={32} color="#fff" />
+            <Ionicons name="close" size={30} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={styles.title}>Наведите камеру на штрих-код</Text>
+
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
-        
+
         <View style={styles.middleRow}>
           <View style={styles.sideOverlay} />
           <View style={styles.scannerFrame}>
@@ -93,17 +122,26 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScanned, onClose, onM
           </View>
           <View style={styles.sideOverlay} />
         </View>
-        
+
         <View style={styles.bottomOverlay}>
-          <Text style={styles.hint}>Поддерживаются: QR, EAN, UPC, Code128 и другие</Text>
-          
-          {/* Кнопка ручного добавления */}
-          {onManualAdd && (
+          <Text style={styles.hint}>
+            Поддерживаются QR, EAN, UPC и другие популярные форматы
+          </Text>
+
+          {onManualAdd ? (
             <TouchableOpacity style={styles.manualButton} onPress={onManualAdd}>
-              <Ionicons name="create-outline" size={20} color="#fff" />
+              <Ionicons name="add" size={18} color="#17191C" />
               <Text style={styles.manualButtonText}>Добавить вручную</Text>
             </TouchableOpacity>
-          )}
+          ) : null}
+
+          {onSecondaryAction ? (
+            <TouchableOpacity onPress={onSecondaryAction}>
+              <Text style={styles.secondaryActionText}>
+                {secondaryActionLabel || 'Проверить продукт'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
     </View>
@@ -113,40 +151,47 @@ const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScanned, onClose, onM
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
   },
-  center: {
+  permissionScreen: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFF9F0',
-    padding: 20,
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 28,
   },
-  text: {
-    fontSize: 18,
-    color: '#666',
-    marginTop: 16,
-    marginBottom: 24,
+  permissionTitle: {
+    marginTop: 18,
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#17191C',
   },
-  button: {
-    backgroundColor: '#E07A5F',
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 25,
-    marginBottom: 12,
+  permissionText: {
+    marginTop: 12,
+    marginBottom: 28,
+    fontSize: 16,
+    lineHeight: 24,
+    textAlign: 'center',
+    color: '#737B86',
   },
-  buttonText: {
-    color: '#fff',
+  primaryButton: {
+    minWidth: 220,
+    borderRadius: 28,
+    backgroundColor: '#5FAF8F',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  primaryButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  secondaryTextButton: {
     fontSize: 16,
     fontWeight: '600',
-  },
-  closeButton: {
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-  },
-  closeButtonText: {
-    color: '#999',
-    fontSize: 16,
+    color: '#737B86',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -154,28 +199,42 @@ const styles = StyleSheet.create({
   },
   topOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 60,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(11, 17, 22, 0.58)',
+    paddingHorizontal: 32,
+    paddingTop: 64,
   },
   closeIcon: {
     position: 'absolute',
-    top: 50,
+    top: 52,
     right: 20,
-    padding: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '500',
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  subtitle: {
+    marginTop: 10,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 16,
+    lineHeight: 22,
+    textAlign: 'center',
   },
   middleRow: {
     flexDirection: 'row',
   },
   sideOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(11, 17, 22, 0.58)',
   },
   scannerFrame: {
     width: SCANNER_SIZE,
@@ -184,65 +243,74 @@ const styles = StyleSheet.create({
   },
   corner: {
     position: 'absolute',
-    width: 30,
-    height: 30,
-    borderColor: '#E07A5F',
+    width: 42,
+    height: 42,
+    borderColor: '#5FAF8F',
   },
   topLeft: {
     top: 0,
     left: 0,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-    borderTopLeftRadius: 8,
+    borderTopWidth: 5,
+    borderLeftWidth: 5,
+    borderTopLeftRadius: 14,
   },
   topRight: {
     top: 0,
     right: 0,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-    borderTopRightRadius: 8,
+    borderTopWidth: 5,
+    borderRightWidth: 5,
+    borderTopRightRadius: 14,
   },
   bottomLeft: {
     bottom: 0,
     left: 0,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-    borderBottomLeftRadius: 8,
+    borderBottomWidth: 5,
+    borderLeftWidth: 5,
+    borderBottomLeftRadius: 14,
   },
   bottomRight: {
     bottom: 0,
     right: 0,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-    borderBottomRightRadius: 8,
+    borderBottomWidth: 5,
+    borderRightWidth: 5,
+    borderBottomRightRadius: 14,
   },
   bottomOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 20,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(11, 17, 22, 0.58)',
+    paddingHorizontal: 28,
+    paddingBottom: 30,
   },
   hint: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.72)',
     fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
     marginBottom: 20,
   },
   manualButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E07A5F',
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 25,
     gap: 8,
+    borderRadius: 26,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    marginBottom: 16,
   },
   manualButtonText: {
-    color: '#fff',
+    color: '#17191C',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  secondaryActionText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });
 
 export default BarcodeScanner;
-

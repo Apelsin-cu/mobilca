@@ -1,38 +1,14 @@
 {
-  "name": "shelflife",
+  "name": "shelflife-workspace",
   "version": "1.0.0",
-  "description": "Мобильное приложение для контроля сроков годности продуктов",
-  "main": "index.js",
+  "description": "Root helper package for the ShelfLife workspace. The active Expo app lives in ./helfifexpo.",
+  "private": true,
   "scripts": {
-    "android": "react-native run-android",
-    "ios": "react-native run-ios",
-    "start": "react-native start",
-    "test": "jest",
-    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "postinstall": "npm install"
-  },
-  "dependencies": {
-  "expo": "^49.0.0",
-  "expo-constants": "^18.0.9",
-  "expo-notifications": "^0.20.1",
-  "expo-file-system": "^19.0.14",
-  "react": "18.2.0",
-  "react-native": "0.73.0"
-  },
-  "devDependencies": {
-    "@babel/core": "^7.20.0",
-    "@babel/preset-env": "^7.20.0",
-    "@babel/runtime": "^7.20.0",
-    "@types/react": "^18.0.24",
-    "@types/react-test-renderer": "^18.0.0",
-    "babel-jest": "^29.2.1",
-    "eslint": "^8.19.0",
-    "jest": "^29.2.1",
-    "prettier": "^2.4.1",
-    "react-test-renderer": "18.2.0",
-    "typescript": "4.8.4"
-  },
-  "jest": {
-    "preset": "react-native"
+    "install:app": "npm --prefix ./helfifexpo install",
+    "start": "npm --prefix ./helfifexpo start",
+    "android": "npm --prefix ./helfifexpo run android",
+    "ios": "npm --prefix ./helfifexpo run ios",
+    "web": "npm --prefix ./helfifexpo run web",
+    "typecheck": "npm --prefix ./helfifexpo exec -- tsc -p ./helfifexpo/tsconfig.json --noEmit"
   }
 }

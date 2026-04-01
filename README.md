@@ -1,98 +1,78 @@
-# ShelfLife - Контроль сроков годности продуктов
+# ShelfLife Workspace
 
-Мобильное приложение для отслеживания сроков годности продуктов с использованием API Open Food Facts.
+This repository currently contains one active mobile app and a small amount of legacy root-level scaffolding.
 
-## Возможности
+## Active Project
 
-- 📱 **Сканирование штрих-кодов** - Быстрое добавление продуктов по штрих-коду
-- 🔍 **Поиск продуктов** - Поиск в базе данных Open Food Facts
-- ⏰ **Уведомления** - Напоминания о приближающихся сроках истечения
-- 📊 **Статистика** - Обзор всех продуктов и их статусов
-- 🎨 **Современный UI** - Интуитивно понятный интерфейс
-- 💾 **Локальное хранение** - Все данные хранятся на устройстве
+The working application lives in `helfifexpo/`.
 
-## Технологии
+Technology stack:
+- Expo SDK 54
+- React Native 0.81
+- TypeScript
+- Firebase Firestore
+- Open Food Facts API
 
-- **React Native** - Кроссплатформенная разработка
-- **TypeScript** - Типизированный JavaScript
-- **Open Food Facts API** - База данных продуктов
-- **AsyncStorage** - Локальное хранение данных
-- **React Navigation** - Навигация между экранами
-- **Vector Icons** - Иконки Material Design
+## Current Status
 
-## 🚀 Быстрый запуск
+The root-level files such as `App.tsx` and `index.js` are legacy artifacts from an older app structure and should not be used as the main entrypoint.
 
-### 1. Установка зависимостей
+Use the Expo app inside `helfifexpo/` for development and release work.
+
+## Quick Start
+
+From the repository root:
+
 ```bash
-npm install
+npm run install:app
+npm run start
 ```
 
-### 2. Запуск Metro bundler
-```bash
-npm start
-```
+Android:
 
-### 3. Запуск на Android (в новом терминале)
 ```bash
 npm run android
 ```
 
-## 📋 Предварительные требования
+Web:
 
-- **Node.js** (версия 16 или выше)
-- **Android Studio** (для Android)
-- **Java JDK 11** (для Android)
-- **React Native CLI** (опционально)
-
-Подробные инструкции: [WINDOWS_SETUP.md](WINDOWS_SETUP.md)
-
-## Структура проекта
-
-```
-src/
-├── screens/           # Экраны приложения
-│   ├── HomeScreen.tsx
-│   ├── AddProductScreen.tsx
-│   ├── ProductListScreen.tsx
-│   ├── ProductDetailScreen.tsx
-│   └── SettingsScreen.tsx
-├── services/          # Сервисы
-│   ├── OpenFoodFactsAPI.ts
-│   └── StorageService.ts
-└── types/            # Типы TypeScript
-    └── Product.ts
+```bash
+npm run web
 ```
 
-## API Open Food Facts
+You can also work directly inside `helfifexpo/`:
 
-Приложение использует бесплатный API Open Food Facts для получения информации о продуктах:
+```bash
+cd helfifexpo
+npm install
+npm start
+```
 
-- **Поиск по штрих-коду**: `https://world.openfoodfacts.org/api/v0/product/{barcode}.json`
-- **Поиск по названию**: `https://world.openfoodfacts.org/api/v0/cgi/search.pl`
+## Real Project Structure
 
-## Основные функции
+```text
+helfifexpo/
+  App.tsx
+  app.json
+  package.json
+  src/
+    components/
+    config/
+    screens/
+    services/
+    types/
+  android/
+```
 
-### Добавление продуктов
-- Сканирование штрих-кода
-- Ручной ввод данных
-- Автоматическое заполнение из базы данных
-- Установка даты истечения срока
+## Documentation
 
-### Управление продуктами
-- Просмотр списка всех продуктов
-- Фильтрация по статусу (просроченные, скоро истекают, свежие)
-- Редактирование информации о продукте
-- Удаление продуктов
+- `QUICK_START.md`: short launch guide
+- `PROJECT_FILES.md`: file map for the active app
+- `INSTALLATION.md`: older install notes, partially outdated
+- `WINDOWS_SETUP.md`: older Windows notes, partially outdated
 
-### Уведомления
-- Настройка дней до истечения срока
-- Включение/отключение уведомлений
-- Автоматическое удаление просроченных продуктов
+## Next Cleanup Targets
 
-## Лицензия
-
-MIT License
-
-## Контрибьюторы
-
-Приветствуются любые предложения и улучшения!
+- remove legacy root React Native scaffold after confirming it is no longer needed
+- normalize dates and notification logic inside the Expo app
+- add linting, tests, and environment-based config

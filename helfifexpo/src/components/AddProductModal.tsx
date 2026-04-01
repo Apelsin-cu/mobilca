@@ -1,27 +1,52 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
+  Alert,
+  Modal,
+  Platform,
+  ScrollView,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  Platform,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Product, ProductCategory, CATEGORY_ICONS, CATEGORY_NAMES } from '../types/Product';
+import {
+  CATEGORY_ICONS,
+  CATEGORY_NAMES,
+  Product,
+  ProductCategory,
+  ProductDateSource,
+  PRODUCT_DATE_SOURCE_LABELS,
+} from '../types/Product';
+import DateScannerModal, { buildDetectedDateSummary } from './DateScannerModal';
+import { DateOcrService, OcrScanResult } from '../services/DateOcrService';
 import { OpenFoodFactsAPI } from '../services/OpenFoodFactsAPI';
+import { ProductDateValidationService } from '../services/ProductDateValidationService';
+import {
+  formatExpiryDateForDisplay,
+  normalizeExpiryDate,
+} from '../utils/productDate';
 
 interface AddProductModalProps {
   initialData?: Partial<Product> & { isFromApi?: boolean };
   barcode: string;
   onSave: (product: Omit<Product, 'id'>) => void;
   onClose: () => void;
+  submitLabel?: string;
+  title?: string;
 }
 
 const CATEGORIES: ProductCategory[] = [
-  'fruits', 'vegetables', 'dairy', 'meat', 
-  'beverages', 'bakery', 'snacks', 'frozen', 'other'
+  'fruits',
+  'vegetables',
+  'dairy',
+  'meat',
+  'beverages',
+  'bakery',
+  'snacks',
+  'frozen',
+  'other',
 ];
 
 const AddProductModal: React.FC<AddProductModalProps> = ({
@@ -29,200 +54,391 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
   barcode,
   onSave,
   onClose,
+  submitLabel = 'Сохранить',
+  title,
 }) => {
-  // Логируем входные данные для отладки
-  console.log('AddProductModal initialData:', JSON.stringify(initialData, null, 2));
-  
   const isFromApi = initialData?.isFromApi || false;
-  const isManualEntry = barcode.startsWith('MANUAL-'); // Ручной ввод без штрих-кода
-  const [isManualMode, setIsManualMode] = useState(!isFromApi || isManualEntry);
-  
+  const isManualEntry = barcode.startsWith('MANUAL-');
+  const isEditing = Boolean(initialData?.id);
   const [name, setName] = useState(initialData?.name || '');
   const [category, setCategory] = useState<ProductCategory>(
-    initialData?.category as ProductCategory || (isManualEntry ? 'vegetables' : 'other')
+    (initialData?.category as ProductCategory) ||
+      (isManualEntry ? 'vegetables' : 'other')
   );
-  const [expiryDate, setExpiryDate] = useState(initialData?.expiryDate || '');
+  const [manufactureDate, setManufactureDate] = useState(
+    formatDateForInput(initialData?.manufactureDate || '')
+  );
+  const [expiryDate, setExpiryDate] = useState(
+    formatDateForInput(initialData?.expiryDate || '')
+  );
   const [quantity, setQuantity] = useState(initialData?.quantity?.toString() || '1');
-  const [purchaseLocation, setPurchaseLocation] = useState(initialData?.purchaseLocation || '');
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showDateScanner, setShowDateScanner] = useState(false);
+  const [ocrSummary, setOcrSummary] = useState('');
+  const [hasAutoOpenedOcr, setHasAutoOpenedOcr] = useState(false);
+  const [manufactureDateSource, setManufactureDateSource] = useState<
+    ProductDateSource | undefined
+  >(initialData?.manufactureDateSource);
+  const [expiryDateSource, setExpiryDateSource] = useState<ProductDateSource>(
+    initialData?.expiryDateSource || 'manual'
+  );
+  const validation = useMemo(
+    () =>
+      ProductDateValidationService.validate({
+        category,
+        manufactureDate: convertToISO(manufactureDate),
+        expiryDate: convertToISO(expiryDate),
+        manufactureDateSource,
+        expiryDateSource,
+        apiManufactureDate: initialData?.manufactureDate,
+        apiExpiryDate: initialData?.expiryDate,
+      }),
+    [
+      category,
+      expiryDate,
+      expiryDateSource,
+      initialData?.expiryDate,
+      initialData?.manufactureDate,
+      manufactureDate,
+      manufactureDateSource,
+    ]
+  );
 
-  // Обновляем данные когда initialData меняется
   useEffect(() => {
-    if (initialData) {
-      console.log('Updating from initialData:', initialData);
-      if (initialData.name) setName(initialData.name);
-      if (initialData.category) setCategory(initialData.category as ProductCategory);
-      if (initialData.expiryDate) setExpiryDate(initialData.expiryDate);
-      if (initialData.purchaseLocation) setPurchaseLocation(initialData.purchaseLocation);
-    }
-  }, [initialData]);
+    const nextCategory =
+      (initialData?.category as ProductCategory) ||
+      (isManualEntry ? 'vegetables' : 'other');
 
-  // Обновляем срок годности при смене категории в ручном режиме
+    setName(initialData?.name || '');
+    setCategory(nextCategory);
+    setManufactureDate(formatDateForInput(initialData?.manufactureDate || ''));
+    setExpiryDate(formatDateForInput(initialData?.expiryDate || ''));
+    setQuantity(initialData?.quantity?.toString() || '1');
+    setOcrSummary('');
+    setHasAutoOpenedOcr(false);
+    setManufactureDateSource(initialData?.manufactureDateSource);
+    setExpiryDateSource(initialData?.expiryDateSource || 'manual');
+  }, [initialData, isManualEntry]);
+
   useEffect(() => {
-    if ((isManualMode || isManualEntry) && !initialData?.expiryDate) {
-      setExpiryDate(OpenFoodFactsAPI.getDefaultExpiryForCategory(category));
+    if (isManualEntry || isEditing || hasAutoOpenedOcr || !DateOcrService.isSupported) {
+      return;
     }
-  }, [category, isManualMode, isManualEntry]);
+
+    setShowDateScanner(true);
+    setHasAutoOpenedOcr(true);
+  }, [hasAutoOpenedOcr, isEditing, isManualEntry]);
+
+  const handleManufactureDateChange = (text: string) => {
+    setManufactureDate(formatDateString(text));
+    setManufactureDateSource('manual');
+  };
+
+  const handleExpiryDateChange = (text: string) => {
+    setExpiryDate(formatDateString(text));
+    setExpiryDateSource('manual');
+  };
+
+  const handleCalculateExpiry = () => {
+    if (!manufactureDate.trim()) {
+      alert('Введите дату изготовления или укажите ее вручную на упаковке');
+      return;
+    }
+
+    const calculated = OpenFoodFactsAPI.getDefaultExpiryForCategory(
+      category,
+      convertToISO(manufactureDate),
+      name.trim()
+    );
+
+    if (!calculated) {
+      alert('Не удалось рассчитать дату. Введите ее вручную.');
+      return;
+    }
+
+    setExpiryDate(formatDateForInput(calculated));
+    setExpiryDateSource('calculated');
+  };
 
   const handleSave = () => {
     if (!name.trim()) {
       alert('Введите название продукта');
       return;
     }
-    if (!expiryDate) {
-      alert('Введите срок годности');
+
+    if (!expiryDate.trim()) {
+      alert('Введите дату "Рекомендуется употребить до"');
       return;
     }
 
+    if (
+      expiryDateSource === 'ocr' &&
+      initialData?.expiryDateSource === 'api' &&
+      initialData?.expiryDate &&
+      convertToISO(expiryDate) !== initialData.expiryDate
+    ) {
+      Alert.alert(
+        'Подтвердите срок годности',
+        `На упаковке считано ${formatDateForInput(convertToISO(expiryDate))}, а в API указано ${formatDateForInput(initialData.expiryDate)}. Подтвердите срок годности или исправьте дату вручную.`,
+        [
+          {
+            text: 'Исправить',
+            style: 'cancel',
+          },
+          {
+            text: 'Подтвердить',
+            onPress: saveProduct,
+          },
+        ]
+      );
+      return;
+    }
+
+    saveProduct();
+  };
+
+  const saveProduct = () => {
     onSave({
       name: name.trim(),
       barcode,
       category,
+      manufactureDate: convertToISO(manufactureDate),
+      manufactureDateSource: manufactureDate.trim()
+        ? manufactureDateSource || 'manual'
+        : undefined,
       expiryDate: convertToISO(expiryDate),
-      quantity: parseInt(quantity) || 1,
+      expiryDateSource,
+      quantity: Math.max(1, parseInt(quantity, 10) || 1),
       imageUrl: initialData?.imageUrl,
       brand: initialData?.brand,
-      purchaseLocation: purchaseLocation.trim() || undefined,
-      addedAt: new Date().toISOString(),
+      purchaseLocation: initialData?.purchaseLocation,
+      addedAt: initialData?.addedAt || new Date().toISOString(),
     });
   };
 
-  const formatDateInput = (text: string) => {
-    // Автоформатирование даты: DD.MM.YYYY
-    const cleaned = text.replace(/\D/g, '');
-    let formatted = '';
-    
-    if (cleaned.length > 0) {
-      formatted = cleaned.slice(0, 2);
+  const handleDetectedDates = (result: OcrScanResult) => {
+    if (result.manufactureDate?.isoDate) {
+      setManufactureDate(formatDateForInput(result.manufactureDate.isoDate));
+      setManufactureDateSource('ocr');
     }
-    if (cleaned.length > 2) {
-      formatted += '.' + cleaned.slice(2, 4);
+
+    if (result.expiryDate?.isoDate) {
+      setExpiryDate(formatDateForInput(result.expiryDate.isoDate));
+      setExpiryDateSource('ocr');
     }
-    if (cleaned.length > 4) {
-      formatted += '.' + cleaned.slice(4, 8);
-    }
-    
-    setExpiryDate(formatted);
+
+    setOcrSummary(buildDetectedDateSummary(result));
+    setShowDateScanner(false);
   };
 
-  const convertToISO = (dateStr: string): string => {
-    const parts = dateStr.split('.');
-    if (parts.length === 3) {
-      return `${parts[2]}-${parts[1]}-${parts[0]}`;
-    }
-    return dateStr;
-  };
+  const computedTitle =
+    title ||
+    (isEditing
+      ? 'Редактирование'
+      : isManualEntry
+        ? 'Добавить вручную'
+        : isFromApi
+          ? 'Проверьте данные'
+          : 'Новый продукт');
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onClose}>
-          <Ionicons name="close" size={28} color="#333" />
+        <TouchableOpacity onPress={onClose} style={styles.iconButton}>
+          <Ionicons name="close" size={24} color="#17191C" />
         </TouchableOpacity>
-        <Text style={styles.title}>
-          {isManualEntry ? 'Добавить вручную' : isFromApi ? 'Продукт найден' : 'Добавить продукт'}
-        </Text>
-        <TouchableOpacity onPress={handleSave}>
-          <Ionicons name="checkmark" size={28} color="#E07A5F" />
+        <Text style={styles.title}>{computedTitle}</Text>
+        <TouchableOpacity onPress={handleSave} style={styles.iconButton}>
+          <Ionicons name="checkmark" size={24} color="#5FAF8F" />
         </TouchableOpacity>
       </View>
 
-      {/* Баннер статуса */}
       {isManualEntry ? (
-        <View style={[styles.statusBanner, { backgroundColor: '#E3F2FD' }]}>
-          <Ionicons name="create" size={20} color="#2196F3" />
-          <Text style={styles.statusText}>Ручной ввод — для овощей, фруктов и других продуктов</Text>
-        </View>
-      ) : isFromApi && !isManualMode ? (
-        <View style={styles.statusBanner}>
-          <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-          <Text style={styles.statusText}>Данные загружены автоматически</Text>
-          <TouchableOpacity onPress={() => setIsManualMode(true)}>
-            <Text style={styles.editLink}>Изменить</Text>
-          </TouchableOpacity>
-        </View>
-      ) : !isFromApi ? (
-        <View style={[styles.statusBanner, { backgroundColor: '#FFF3E0' }]}>
-          <Ionicons name="hand-left" size={20} color="#FF9800" />
-          <Text style={styles.statusText}>Продукт не найден — заполните вручную</Text>
-        </View>
+        <Banner
+          icon="add-circle-outline"
+          text="Для ручного добавления укажите реальные даты с упаковки."
+          tone="soft"
+        />
       ) : null}
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Название */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Название</Text>
+      {manufactureDateSource && manufactureDate ? (
+        <Banner
+          icon="calendar-outline"
+          text={`Дата изготовления: ${PRODUCT_DATE_SOURCE_LABELS[manufactureDateSource]}`}
+        />
+      ) : null}
+
+      {expiryDateSource === 'api' && expiryDate ? (
+        <Banner
+          icon="checkmark-circle-outline"
+          text='Поле "Рекомендуется употребить до" пришло из API.'
+        />
+      ) : null}
+
+      {ocrSummary ? (
+        <Banner
+          icon="scan-outline"
+          text={`Считано с упаковки: ${ocrSummary}`}
+          tone="soft"
+        />
+      ) : null}
+
+      {!ocrSummary && expiryDateSource === 'api' && expiryDate ? (
+        <Banner
+          icon="cloud-download-outline"
+          text="Р”Р°С‚Р° СЃ СѓРїР°РєРѕРІРєРё РЅРµ СЂР°СЃРїРѕР·РЅР°РЅР°, РїРѕСЌС‚РѕРјСѓ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ Р·РЅР°С‡РµРЅРёРµ РёР· API."
+          tone="soft"
+        />
+      ) : null}
+
+      {!ocrSummary && !expiryDate ? (
+        <Banner
+          icon="create-outline"
+          text="Р”Р°С‚Р° РЅРµ РЅР°Р№РґРµРЅР° РЅРё РЅР° СѓРїР°РєРѕРІРєРµ, РЅРё РІ API. Р’РІРµРґРёС‚Рµ РµС‘ РІСЂСѓС‡РЅСѓСЋ."
+          tone="warning"
+        />
+      ) : null}
+
+      <Banner
+        icon={
+          validation.confidence === 'high'
+            ? 'shield-checkmark-outline'
+            : validation.confidence === 'medium'
+              ? 'shield-half-outline'
+              : 'warning-outline'
+        }
+        text={
+          validation.confidence === 'high'
+            ? 'Уровень доверия к дате: высокий.'
+            : validation.confidence === 'medium'
+              ? 'Уровень доверия к дате: средний.'
+              : 'Уровень доверия к дате: низкий.'
+        }
+        tone={validation.confidence === 'low' ? 'warning' : 'soft'}
+      />
+
+      {validation.messages.map((message) => (
+        <Banner
+          key={message.text}
+          icon={message.severity === 'warning' ? 'alert-circle-outline' : 'information-circle-outline'}
+          text={message.text}
+          tone={message.severity === 'warning' ? 'warning' : 'soft'}
+        />
+      ))}
+
+      {expiryDateSource === 'calculated' && expiryDate ? (
+        <Banner
+          icon="sparkles-outline"
+          text='Поле "Рекомендуется употребить до" рассчитано примерно. Лучше проверить упаковку.'
+          tone="warning"
+        />
+      ) : null}
+
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.contentContainer}
+      >
+        <Field label="Название">
           <TextInput
             style={styles.input}
             value={name}
             onChangeText={setName}
             placeholder="Введите название продукта"
-            placeholderTextColor="#999"
+            placeholderTextColor="#9AA2AE"
           />
-        </View>
+        </Field>
 
-        {/* Штрих-код - показываем только если это сканирование */}
-        {!isManualEntry && (
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Штрих-код</Text>
-            <View style={styles.barcodeContainer}>
-              <Text style={styles.barcodeText}>{barcode}</Text>
+        {!isManualEntry ? (
+          <Field label="Штрихкод">
+            <View style={styles.infoField}>
+              <Text style={styles.infoFieldText}>{barcode}</Text>
             </View>
-          </View>
-        )}
+          </Field>
+        ) : null}
 
-        {/* Категория */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Категория</Text>
+        <Field label="Категория">
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.categoriesRow}>
-              {CATEGORIES.map((cat) => (
+              {CATEGORIES.map((item) => (
                 <TouchableOpacity
-                  key={cat}
+                  key={item}
                   style={[
                     styles.categoryButton,
-                    category === cat && styles.categoryButtonActive,
+                    category === item && styles.categoryButtonActive,
                   ]}
-                  onPress={() => setCategory(cat)}
+                  onPress={() => setCategory(item)}
                 >
-                  <Text style={styles.categoryIcon}>{CATEGORY_ICONS[cat]}</Text>
+                  <Text style={styles.categoryIcon}>{CATEGORY_ICONS[item]}</Text>
                   <Text
                     style={[
                       styles.categoryText,
-                      category === cat && styles.categoryTextActive,
+                      category === item && styles.categoryTextActive,
                     ]}
                   >
-                    {CATEGORY_NAMES[cat]}
+                    {CATEGORY_NAMES[item]}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
           </ScrollView>
-        </View>
+        </Field>
 
-        {/* Срок годности */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Срок годности</Text>
+        <Field label="Дата изготовления">
           <TextInput
             style={styles.input}
-            value={expiryDate}
-            onChangeText={formatDateInput}
+            value={manufactureDate}
+            onChangeText={handleManufactureDateChange}
             placeholder="ДД.ММ.ГГГГ"
-            placeholderTextColor="#999"
+            placeholderTextColor="#9AA2AE"
             keyboardType="numeric"
             maxLength={10}
           />
-        </View>
+        </Field>
 
-        {/* Количество */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Количество</Text>
+        <Field label="Рекомендуется употребить до">
+          <TextInput
+            style={styles.input}
+            value={expiryDate}
+            onChangeText={handleExpiryDateChange}
+            placeholder="ДД.ММ.ГГГГ"
+            placeholderTextColor="#9AA2AE"
+            keyboardType="numeric"
+            maxLength={10}
+          />
+        </Field>
+
+        {DateOcrService.isSupported ? (
+          <TouchableOpacity
+            style={styles.ocrButton}
+            onPress={() => setShowDateScanner(true)}
+          >
+            <Ionicons name="camera-outline" size={18} color="#17191C" />
+            <Text style={styles.ocrButtonText}>Считать даты с упаковки</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        <TouchableOpacity
+          style={styles.calculateButton}
+          onPress={handleCalculateExpiry}
+        >
+          <Ionicons name="calculator-outline" size={18} color="#17191C" />
+          <Text style={styles.calculateButtonText}>Рассчитать примерно</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.helpText}>
+          Если точной даты нет, проверьте упаковку. Расчет подходит только как
+          подсказка.
+        </Text>
+
+        <Field label="Количество">
           <View style={styles.quantityRow}>
             <TouchableOpacity
               style={styles.quantityButton}
-              onPress={() => setQuantity(Math.max(1, parseInt(quantity) - 1).toString())}
+              onPress={() =>
+                setQuantity(Math.max(1, (parseInt(quantity, 10) || 1) - 1).toString())
+              }
             >
-              <Ionicons name="remove" size={24} color="#E07A5F" />
+              <Ionicons name="remove" size={22} color="#17191C" />
             </TouchableOpacity>
             <TextInput
               style={styles.quantityInput}
@@ -232,182 +448,273 @@ const AddProductModal: React.FC<AddProductModalProps> = ({
             />
             <TouchableOpacity
               style={styles.quantityButton}
-              onPress={() => setQuantity((parseInt(quantity) + 1).toString())}
+              onPress={() => setQuantity(((parseInt(quantity, 10) || 1) + 1).toString())}
             >
-              <Ionicons name="add" size={24} color="#E07A5F" />
+              <Ionicons name="add" size={22} color="#17191C" />
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Место покупки - необязательное поле */}
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Где куплен <Text style={styles.optionalLabel}>(необязательно)</Text></Text>
-          <TextInput
-            style={styles.input}
-            value={purchaseLocation}
-            onChangeText={setPurchaseLocation}
-            placeholder="Магнит, Пятёрочка, Ашан..."
-            placeholderTextColor="#999"
-          />
-        </View>
+        </Field>
       </ScrollView>
 
       <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-        <Text style={styles.saveButtonText}>Сохранить в холодильник</Text>
+        <Text style={styles.saveButtonText}>{submitLabel}</Text>
       </TouchableOpacity>
+
+      <Modal visible={showDateScanner} animationType="slide">
+        <DateScannerModal
+          onClose={() => setShowDateScanner(false)}
+          onDetected={handleDetectedDates}
+        />
+      </Modal>
     </View>
   );
 };
 
+const Field = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) => (
+  <View style={styles.inputGroup}>
+    <Text style={styles.label}>{label}</Text>
+    {children}
+  </View>
+);
+
+const Banner = ({
+  icon,
+  text,
+  tone = 'default',
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  text: string;
+  tone?: 'default' | 'soft' | 'warning';
+}) => (
+  <View
+    style={[
+      styles.banner,
+      tone === 'soft' && styles.bannerSoft,
+      tone === 'warning' && styles.bannerWarning,
+    ]}
+  >
+    <Ionicons name={icon} size={18} color="#5FAF8F" />
+    <Text style={styles.bannerText}>{text}</Text>
+  </View>
+);
+
+const formatDateString = (text: string) => {
+  const cleaned = text.replace(/\D/g, '');
+  let formatted = '';
+
+  if (cleaned.length > 0) {
+    formatted = cleaned.slice(0, 2);
+  }
+  if (cleaned.length > 2) {
+    formatted += `.${cleaned.slice(2, 4)}`;
+  }
+  if (cleaned.length > 4) {
+    formatted += `.${cleaned.slice(4, 8)}`;
+  }
+
+  return formatted;
+};
+
+const formatDateForInput = (value: string) => formatExpiryDateForDisplay(value);
+
+const convertToISO = (dateStr: string) => normalizeExpiryDate(dateStr);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF9F0',
+    backgroundColor: '#F3F4F6',
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
+    paddingBottom: 18,
+  },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#17191C',
+  },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: 20,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+  },
+  bannerSoft: {
+    backgroundColor: '#EAF5F0',
+  },
+  bannerWarning: {
+    backgroundColor: '#FFF4E6',
+  },
+  bannerText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#4F5A67',
   },
   content: {
     flex: 1,
-    padding: 20,
+  },
+  contentContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
   inputGroup: {
-    marginBottom: 24,
+    marginBottom: 22,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
     marginBottom: 8,
-  },
-  optionalLabel: {
-    fontSize: 12,
-    fontWeight: '400',
-    color: '#999',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4F5A67',
   },
   input: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
     fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
+    color: '#17191C',
   },
-  barcodeContainer: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 12,
+  infoField: {
+    borderRadius: 18,
+    backgroundColor: '#EAF0F5',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
   },
-  barcodeText: {
+  infoFieldText: {
     fontSize: 16,
-    color: '#666',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    color: '#4F5A67',
   },
   categoriesRow: {
     flexDirection: 'row',
-    gap: 10,
+    paddingRight: 16,
   },
   categoryButton: {
     alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    minWidth: 80,
+    minWidth: 92,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    marginRight: 10,
   },
   categoryButtonActive: {
-    backgroundColor: '#E07A5F',
-    borderColor: '#E07A5F',
+    backgroundColor: '#17191C',
   },
   categoryIcon: {
-    fontSize: 24,
-    marginBottom: 4,
+    fontSize: 22,
+    marginBottom: 8,
   },
   categoryText: {
     fontSize: 12,
-    color: '#666',
+    fontWeight: '700',
+    textAlign: 'center',
+    color: '#4F5A67',
   },
   categoryTextActive: {
-    color: '#fff',
+    color: '#FFFFFF',
+  },
+  calculateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 18,
+    backgroundColor: '#EAF5F0',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 10,
+    gap: 8,
+  },
+  ocrButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  ocrButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#17191C',
+  },
+  calculateButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#17191C',
+  },
+  helpText: {
+    marginBottom: 22,
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#737B86',
   },
   quantityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
   },
   quantityButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#fff',
-    justifyContent: 'center',
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E07A5F',
+    justifyContent: 'center',
   },
   quantityInput: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    fontSize: 20,
-    fontWeight: '600',
+    flex: 1,
+    marginHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     textAlign: 'center',
-    minWidth: 80,
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#17191C',
   },
   saveButton: {
-    backgroundColor: '#E07A5F',
     marginHorizontal: 20,
-    marginBottom: Platform.OS === 'ios' ? 40 : 20,
-    paddingVertical: 16,
-    borderRadius: 16,
+    marginTop: 8,
+    marginBottom: 20,
+    borderRadius: 26,
+    backgroundColor: '#17191C',
+    paddingVertical: 18,
     alignItems: 'center',
   },
   saveButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  statusBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
-  },
-  statusText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#333',
-  },
-  editLink: {
-    fontSize: 14,
-    color: '#E07A5F',
-    fontWeight: '600',
-  },
-  autoFilledField: {
-    backgroundColor: '#F0F8F0',
-    borderColor: '#4CAF50',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });
 

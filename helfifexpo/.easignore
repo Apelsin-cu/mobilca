@@ -1,0 +1,6 @@
+.expo/
+.expo-check/
+.gradle-user-home/
+android/.gradle/
+android/app/build/
+android/local.properties

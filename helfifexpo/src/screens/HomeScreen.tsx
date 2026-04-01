@@ -1,321 +1,358 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Modal,
   ActivityIndicator,
-  TouchableOpacity,
+  Modal,
   SafeAreaView,
-  Platform,
-  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import BarcodeScanner from '../components/BarcodeScanner';
 import { OpenFoodFactsAPI } from '../services/OpenFoodFactsAPI';
-import { CATEGORY_ICONS, CATEGORY_NAMES, ProductCategory } from '../types/Product';
+import {
+  CATEGORY_ICONS,
+  CATEGORY_NAMES,
+  ProductCategory,
+  ProductDateSource,
+} from '../types/Product';
+import { normalizeScannedBarcode } from '../utils/barcode';
+import { formatExpiryDateForDisplay } from '../utils/productDate';
 
-const ScanScreen: React.FC = () => {
+const HomeScreen: React.FC = () => {
   const [showScanner, setShowScanner] = useState(false);
   const [productInfo, setProductInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [lastBarcode, setLastBarcode] = useState('');
 
-  const handleScan = async (barcode: string, type: string) => {
+  const handleScan = async (rawBarcode: string) => {
+    const normalizedBarcode = normalizeScannedBarcode(rawBarcode);
+    const barcode = normalizedBarcode || rawBarcode.trim();
     setShowScanner(false);
+
+    if (!barcode) {
+      setProductInfo({
+        name: 'Код не распознан',
+        brand: '',
+        category: 'other',
+        expiryDate: '',
+        error: true,
+      });
+      setLastBarcode(rawBarcode);
+      return;
+    }
+
     setLoading(true);
     setLastBarcode(barcode);
 
     try {
-      const data = await OpenFoodFactsAPI.getProductByBarcode(barcode);
-      
+      const data = normalizedBarcode
+        ? await OpenFoodFactsAPI.getProductByBarcode(normalizedBarcode)
+        : null;
+
       if (data) {
-        setProductInfo({
-          name: data.name,
-          brand: data.brand,
-          category: data.category,
-          expiryDate: data.expiryDate || 'Нет данных',
-          imageUrl: data.imageUrl,
-          barcodeType: type,
-        });
+        setProductInfo(data);
       } else {
         setProductInfo({
           name: 'Продукт не найден',
           brand: '',
           category: 'other',
           expiryDate: '',
-          barcodeType: type,
+          expiryDateSource: 'manual',
           notFound: true,
         });
       }
-    } catch (e) {
+    } catch (error) {
+      console.error('Scan error:', error);
       setProductInfo({
         name: 'Ошибка загрузки',
         brand: '',
         category: 'other',
         expiryDate: '',
+        expiryDateSource: 'manual',
         error: true,
       });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
-
-  const resetScan = () => {
-    setProductInfo(null);
-    setLastBarcode('');
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Ionicons name="settings-outline" size={24} color="#E07A5F" />
-        <Text style={styles.headerTitle}>Сканер</Text>
-        <View style={{ width: 24 }} />
-      </View>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.overline}>Быстрая проверка</Text>
+          <Text style={styles.title}>Сканируйте продукт без добавления в холодильник</Text>
+          <Text style={styles.subtitle}>
+            Здесь можно быстро посмотреть карточку товара, дату изготовления и
+            доступную информацию из базы.
+          </Text>
+        </View>
 
-      <View style={styles.content}>
-        {!productInfo && !loading && (
-          <View style={styles.emptyState}>
-            <Ionicons name="barcode-outline" size={80} color="#E07A5F" />
-            <Text style={styles.emptyTitle}>Сканируйте штрих-код</Text>
-            <Text style={styles.emptySubtitle}>
-              Наведите камеру на штрих-код или QR-код продукта, чтобы получить информацию
+        {!productInfo && !loading ? (
+          <View style={styles.heroCard}>
+            <View style={styles.heroIconWrap}>
+              <Ionicons name="barcode-outline" size={30} color="#5FAF8F" />
+            </View>
+            <Text style={styles.heroTitle}>Проверить продукт</Text>
+            <Text style={styles.heroText}>
+              Подходит, если вы хотите быстро посмотреть данные о товаре, не сохраняя
+              его в холодильник.
             </Text>
-            <TouchableOpacity
-              style={styles.scanButton}
-              onPress={() => setShowScanner(true)}
-            >
-              <Ionicons name="scan" size={24} color="#fff" />
-              <Text style={styles.scanButtonText}>Сканировать</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={() => setShowScanner(true)}>
+              <Ionicons name="scan" size={20} color="#FFFFFF" />
+              <Text style={styles.primaryButtonText}>Проверить продукт</Text>
             </TouchableOpacity>
           </View>
-        )}
+        ) : null}
 
-        {loading && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#E07A5F" />
+        {loading ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color="#5FAF8F" />
             <Text style={styles.loadingText}>Ищем информацию о продукте...</Text>
           </View>
-        )}
+        ) : null}
 
-        {productInfo && !loading && (
-          <View style={styles.resultContainer}>
-            <View style={styles.productCard}>
-              <View style={styles.productIcon}>
-                <Text style={styles.productIconText}>
-                  {CATEGORY_ICONS[productInfo.category as ProductCategory] || '📦'}
-                </Text>
-              </View>
-              
-              <Text style={styles.productName}>{productInfo.name}</Text>
-              
-              {productInfo.brand && (
-                <Text style={styles.productBrand}>{productInfo.brand}</Text>
-              )}
-              
-              <View style={styles.infoRow}>
-                <View style={styles.infoItem}>
-                  <Ionicons name="pricetag-outline" size={20} color="#666" />
-                  <Text style={styles.infoLabel}>Категория</Text>
-                  <Text style={styles.infoValue}>
-                    {CATEGORY_NAMES[productInfo.category as ProductCategory] || 'Другое'}
-                  </Text>
-                </View>
-                
-                <View style={styles.infoItem}>
-                  <Ionicons name="calendar-outline" size={20} color="#666" />
-                  <Text style={styles.infoLabel}>Срок годности</Text>
-                  <Text style={styles.infoValue}>
-                    {productInfo.expiryDate || 'Не указан'}
-                  </Text>
-                </View>
-              </View>
+        {productInfo && !loading ? (
+          <View style={styles.resultCard}>
+            <View style={styles.resultIconWrap}>
+              <Text style={styles.resultIcon}>
+                {CATEGORY_ICONS[productInfo.category as ProductCategory] || CATEGORY_ICONS.other}
+              </Text>
+            </View>
 
-              <View style={styles.barcodeInfo}>
-                <Ionicons name="barcode-outline" size={16} color="#999" />
+            <Text style={styles.resultTitle}>{productInfo.name}</Text>
+
+            {productInfo.brand ? (
+              <Text style={styles.resultBrand}>{productInfo.brand}</Text>
+            ) : null}
+
+            <InfoItem
+              label="Категория"
+              value={
+                CATEGORY_NAMES[productInfo.category as ProductCategory] || 'Другое'
+              }
+            />
+
+            <InfoItem
+              label="Дата изготовления"
+              value={formatExpiryDateForDisplay(productInfo.manufactureDate) || 'Нет данных'}
+            />
+
+            <InfoItem
+              label={getExpiryLabel(productInfo.expiryDateSource)}
+              value={formatExpiryDateForDisplay(productInfo.expiryDate) || 'Введите вручную в холодильнике'}
+            />
+
+            {lastBarcode ? (
+              <View style={styles.barcodeRow}>
+                <Ionicons name="barcode-outline" size={16} color="#737B86" />
                 <Text style={styles.barcodeText}>{lastBarcode}</Text>
               </View>
-            </View>
+            ) : null}
 
-            <View style={styles.actionButtons}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={resetScan}>
-                <Text style={styles.secondaryButtonText}>Сканировать ещё</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setProductInfo(null);
+                setLastBarcode('');
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>Сканировать еще раз</Text>
+            </TouchableOpacity>
           </View>
-        )}
-      </View>
+        ) : null}
+      </ScrollView>
 
-      {/* Scanner Modal */}
       <Modal visible={showScanner} animationType="slide">
         <BarcodeScanner
+          isActive={showScanner}
           onScanned={handleScan}
           onClose={() => setShowScanner(false)}
+          title="Проверить продукт"
+          subtitle="Сканирование покажет информацию о товаре без сохранения"
         />
       </Modal>
     </SafeAreaView>
   );
 };
 
+const InfoItem = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) => (
+  <View style={styles.infoItem}>
+    <Text style={styles.infoLabel}>{label}</Text>
+    <Text style={styles.infoValue}>{value}</Text>
+  </View>
+);
+
+const getExpiryLabel = (source?: ProductDateSource) => {
+  if (source === 'api') return 'Срок годности';
+  return 'Рекомендуется употребить до';
+};
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF9F0',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 40 : 10,
-    paddingBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
+    backgroundColor: '#F3F4F6',
   },
   content: {
-    flex: 1,
     paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 40,
   },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
+  header: {
+    marginBottom: 22,
   },
-  emptyTitle: {
-    fontSize: 24,
+  overline: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#333',
-    marginTop: 24,
+    color: '#737B86',
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '800',
+    color: '#17191C',
     marginBottom: 12,
   },
-  emptySubtitle: {
+  subtitle: {
     fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 32,
     lineHeight: 24,
+    color: '#737B86',
   },
-  scanButton: {
-    flexDirection: 'row',
-    backgroundColor: '#E07A5F',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 28,
+  heroCard: {
+    borderRadius: 32,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+  },
+  heroIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#EAF5F0',
     alignItems: 'center',
-    gap: 12,
-  },
-  scanButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    flex: 1,
     justifyContent: 'center',
+    marginBottom: 18,
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#17191C',
+    marginBottom: 12,
+  },
+  heroText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#737B86',
+    marginBottom: 24,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    gap: 10,
+    borderRadius: 26,
+    backgroundColor: '#17191C',
+    paddingHorizontal: 22,
+    paddingVertical: 15,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  loadingCard: {
+    marginTop: 24,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 30,
     alignItems: 'center',
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666',
+    color: '#737B86',
   },
-  resultContainer: {
-    flex: 1,
-    paddingTop: 20,
+  resultCard: {
+    borderRadius: 32,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 24,
+    paddingVertical: 26,
   },
-  productCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
+  resultIconWrap: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: '#F7F8FA',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  productIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#FFF0EB',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 18,
   },
-  productIconText: {
-    fontSize: 40,
+  resultIcon: {
+    fontSize: 28,
   },
-  productName: {
-    fontSize: 22,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 8,
+  resultTitle: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '800',
+    color: '#17191C',
   },
-  productBrand: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 20,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    marginTop: 16,
+  resultBrand: {
+    marginTop: 8,
+    marginBottom: 18,
+    fontSize: 15,
+    color: '#737B86',
   },
   infoItem: {
-    alignItems: 'center',
-    flex: 1,
+    borderRadius: 22,
+    backgroundColor: '#F7F8FA',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 10,
   },
   infoLabel: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 8,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#5A6471',
+    marginBottom: 6,
   },
   infoValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 4,
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#17191C',
   },
-  barcodeInfo: {
+  barcodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 20,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#EEE',
-    gap: 8,
+    marginTop: 10,
+    marginBottom: 22,
   },
   barcodeText: {
+    marginLeft: 8,
     fontSize: 14,
-    color: '#999',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
-  actionButtons: {
-    marginTop: 24,
-    gap: 12,
+    color: '#737B86',
   },
   secondaryButton: {
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    borderRadius: 16,
+    borderRadius: 24,
+    backgroundColor: '#17191C',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E07A5F',
+    paddingVertical: 15,
   },
   secondaryButtonText: {
-    color: '#E07A5F',
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });
 
-export default ScanScreen;
-
+export default HomeScreen;
