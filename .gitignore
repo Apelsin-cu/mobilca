@@ -1,18 +1,50 @@
+# Environment variables with sensitive data
+.env
+.env.local
+.env.*.local
+.env.production
+
+# OS files
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+
+# Node
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+package-lock.json.bak
 
+# Expo
 .expo/
 .expo-shared/
 dist/
 build/
-coverage/
+eas.json.bak
 
+# Android
 android/.gradle/
 android/app/build/
+android/build/
+android/.gradle-user-home/
+android/.gradle-user-home-fresh/
+*.log
+build-*.log
 
+# IDE
 .idea/
 .vscode/
+*.swc
+.DS_Store
+
+# Build artifacts
+coverage/
+dist/
+
+# Design and UI dumps (old files)
+*.xml
+*.png
+/docs/**/*.png
+!/docs/**/*.md
